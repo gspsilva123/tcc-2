@@ -9,7 +9,7 @@ load VentoCurvaPotencia.txt;  % carrega o ficheiro que tem dados de velocidade d
 % na 1a coluna, e potencia eolica: NT150 na 2a, NTK300 na 3a, e ACSA225 na 4�.
 %load Pd2022a2031.txt; % carrega os ficheiros que tem os dados de demanda horaria da rede de 2022 a 2031                       
 Dados = xlsread('Brava_consumo','Carga2010-2037'); % Atenção: este comando funciona para o excel.xlsx
-Pd= Dados(3:8762,9:28); % leio dados da linha 3-8762 43 da coluna 9 a 28        
+consumption= Dados(3:8762,9:28); % leio dados da linha 3-8762 43 da coluna 9 a 28        
 
 %-------------------- Entrada de dados do sistema ----------------
 
@@ -44,23 +44,23 @@ for k=1:size(Cen,1)
     
     ano = 20; % anos do projecto
     RS= Cen(k,4); %capacidade do reservatorio em m3  ++++++++++++++++++
-    ERmax= RS/3600*9.8*110; %capacidade do reservatorio em kWh 
+    maximum_reservoir_energy= RS/3600*9.8*110; %capacidade do reservatorio em kWh 
     h=8760;%quantidade de horas de simulacao
-    Er=zeros(h,ano);%inicializacao do vector-energia do reservatorio
-    Erj=ERmax/2; % energia inicial no reservatorio
-    Pt=zeros(h,ano);
-    Pb=zeros(h,ano);
-    Erej=zeros(h,ano);
-    Pge=zeros(h,ano);
-    Pwr=zeros(h,ano);
-    nb=0.86; %eficiencia media das bombas
-    nt=0.86; %eficiencia media das turbinas hidraulicas
+    reservoir_energy=zeros(h,ano);%inicializacao do vector-energia do reservatorio
+    current_reservoir_energy=maximum_reservoir_energy/2; % energia inicial no reservatorio
+    hydraulic_turbine_power=zeros(h,ano);
+    pump_power=zeros(h,ano);
+    rejected_energy=zeros(h,ano);
+    diesel_generation_power=zeros(h,ano);
+    wind_injected_energy=zeros(h,ano);
+    avg_pump_eff=0.86; %eficiencia media das bombas
+    avg_hydraulic_turbine_efficiency=0.86; %eficiencia media das turbinas hidraulicas
     nw=0.97; %eficiencia electrica da conversao da potencia eolica
     Te=Cen(k,1); %potencia unitaria do aerogerador           ++++++++++++++
     ne=Cen(k,2);%numero de aerogeradores                     +++++++++++++++
     PDmin= 256*0.5; % o grupo eletrogéneo não pode funcionar abaixo de 50% da carga. 256 é a potencia em kW do grupo menor
 
-    Pwt= ne*nw*VentoCurvaPotencia(1:h,Cen(k,3));
+    combined_wind_turbine_power= ne*nw*VentoCurvaPotencia(1:h,Cen(k,3));
     % pega os 8760 horarios dos dados de potencia 
     % aerogeradores na 2, 3 ou 4a coluna e os coloc num unico vector;
 
@@ -68,7 +68,7 @@ for k=1:size(Cen,1)
     % a 2 coluna tem a potencia do Aerogerador 150 NTK, 
     %a 3a coluna sao as potencias horarias do NTK 300 e 
     % a 4a as potencias do aerogerador ACSA 27/225 
-    Ptmax= mean(Pwt) % potencia nominal da turbina hidraulica
+    max_hydraulic_turbine_power= mean(combined_wind_turbine_power) % potencia nominal da turbina hidraulica
     
 
         % -----------------------------------------------------------------------
@@ -79,85 +79,109 @@ for k=1:size(Cen,1)
         for j=1:h %para cada hora no ano
             
             % --------------  PRODUCAO EOLICA E BOMBEAMENTO  ----------------------
-            % Pwt é a potência que a turbina vai gerar
+            % combined_wind_turbine_power é a potência que a turbina vai gerar
             % ou seja, total_wind_turbine_power
-            % Pd é a demanda da ilha
+            % consumption é a demanda da ilha
             % consumption
             
-            if Pwt(j)> Pd(j,i)*0.35    %se o parque produzir mais que o limite suportado pela rede,
+            % LORENCINI:
+            % Do fluxograma: Ewf > Ed*0.35
+            % Ou seja, se a energia gerada pelo o parque eólico for maior que 35% da demanda
+            % Logo: Pwt = combined_wind_turbine_power
+            % Pd = consumption
+            % Pwr = wind_injected_energy
+            % Pb = pump_power
+            % nb = avg_pump_eff 
+            % Erj = current_reservoir_energy
+            % ERmax = maximum_reservoir_energy
+            % Erej = rejected_energy
+            % Er = reservoir_energy % Eu acho que é a final
+            % Ptmax = max_hydraulic_turbine_power
+            % Pt = hydraulic_turbine_power
+            % Pge = diesel_generation_power
+            %
+            %
+            %
+
+            if combined_wind_turbine_power(j)> consumption(j,i)*0.35    %se o parque produzir mais que o limite suportado pela rede,
                 
-                Pwr(j,i)= Pd(j,i)*0.35;  %injecta-se eolica no valor maximo Eir na rede e...
+                % Logo, vamos injetar no máximo 35% do consumo.
+                wind_injected_energy(j,i)= consumption(j,i)*0.35;  %injecta-se eolica no valor maximo Eir na rede e...
                 
-                % aproveita-se o excedente eolico para bombear para o reservatorio... 
-                
-                %tudo... 
-                if (Pwt(j)-Pwr(j,i))*nb<(ERmax-Erj) 
+                % Se restou energia para bombear e temos espaço no reservatório
+                if (combined_wind_turbine_power(j)-wind_injected_energy(j,i))*avg_pump_eff<(maximum_reservoir_energy-current_reservoir_energy) 
                     % ...verifica se o reservatorio tem capacidade 
                     % para absorver o bombeamento de agua e potencia máxima nao é excedida 
-                    Pb(j,i)=Pwt(j)-Pwr(j,i); 
+                    pump_power(j,i)=combined_wind_turbine_power(j)-wind_injected_energy(j,i); 
                     %regista a energia gasta no bombeamento, contando com o rendimento da bomba
-                    Erj = Erj + (Pwt(j)-Pwr(j,i))*nb; % energia inicial do reservatório
+                    % Erj = current_reservoir_energy
+                    current_reservoir_energy = current_reservoir_energy + (combined_wind_turbine_power(j)-wind_injected_energy(j,i))*avg_pump_eff; % energia inicial do reservatório
                     % bombea toda a energia para o reservatorio
                     
                 else % ... ou bombeia parte do excedente e rejeita
                     % ainda o que o reservatorio nao consegue absorver
-                    Pb(j,i)=(ERmax-Erj)/nb; %energia gasta no bombeamento
-                    Erj = ERmax; % enche o reservatório
-                    Erej(j,i)=(Pwt(j)-Pwr(j,i)) - (ERmax-Erj)/nb; % energia eh dissipada ou rejeitada, na quantidade que reservatorio nao pode receber
+                    pump_power(j,i)=(maximum_reservoir_energy-current_reservoir_energy)/avg_pump_eff; %energia gasta no bombeamento
+                    current_reservoir_energy = maximum_reservoir_energy; % enche o reservatório
+                    rejected_energy(j,i)=(combined_wind_turbine_power(j)-wind_injected_energy(j,i)) - (maximum_reservoir_energy-current_reservoir_energy)/avg_pump_eff; % energia eh dissipada ou rejeitada, na quantidade que reservatorio nao pode receber
                 end
 
             else % se o parque produzir abaixo do limite suportado pela rede, a potencia eolica eh toda injectada na rede
                 %    sem passar pelo sistema hidraulico
-                Pwr(j,i) = Pwt(j);
-                %Er(j,i)=Erj;%reservatorio mantem o seu nivel
+                wind_injected_energy(j,i) = combined_wind_turbine_power(j);
+                %reservoir_energy(j,i)=current_reservoir_energy;%reservatorio mantem o seu nivel
             end
             
             
             %--------------- energia de compensacao: hidraulica ou diesel --------
                     
-            
-            if (Pd(j,i)-Pwr(j,i)) <= Erj*nt %%%%verifica se reservatorio tem energia hidrica suficiente para complementar a energia eolica
+            remaining_energy_needs = consumption(j,i)-wind_injected_energy(j,i)
+            % nt = avg_hydraulic_turbine_efficiency
+            if (remaining_energy_needs) <= current_reservoir_energy*avg_hydraulic_turbine_efficiency %%%%verifica se reservatorio tem energia hidrica suficiente para complementar a energia eolica
                 
-                if (Pd(j,i)-Pwr(j,i)) <= Ptmax  % e se a hidroturbina  tem potencia suficiente.
-                        Pt(j,i)= Pd(j,i)-Pwr(j,i);%turbina hidraulica  injecta o restante de electricidade na rede, e o gerador diesel nao precisa funcionar.
-                        Erj = Erj - Pt(j,i)/nt; % nivel do reservatorio diminui
+                % Ptmax = max_hydraulic_turbine_power
+                % Pt = hydraulic_turbine_power
+                if (remaining_energy_needs) <= max_hydraulic_turbine_power  % e se a hidroturbina  tem potencia suficiente.
+                        hydraulic_turbine_power(j,i)= remaining_energy_needs;%turbina hidraulica  injecta o restante de electricidade na rede, e o gerador diesel nao precisa funcionar.
+                        current_reservoir_energy = current_reservoir_energy - hydraulic_turbine_power(j,i)/avg_hydraulic_turbine_efficiency; % nivel do reservatorio diminui
                 
-                elseif (Pd(j,i)-Pwr(j,i)) > Ptmax && (Pd(j,i)-Pwr(j,i)) <= ( Ptmax + PDmin) % 
-                    Pge(j,i) = PDmin; %garante o mínimo do gerador diesel 
-                    Pt(j,i)= (Pd(j,i)-Pwr(j,i))- Pge(j,i) ; %turbina hidraulica complementa tudo
-                    Erj= Erj - Pt(j,i)/nt; % nivel do reservatorio diminui!!!! 
+                elseif (remaining_energy_needs) > max_hydraulic_turbine_power && (remaining_energy_needs) <= ( max_hydraulic_turbine_power + PDmin) % 
+                % Lorencini elseif  (remaining_energy_needs) <= ( max_hydraulic_turbine_power + PDmin) % 
+                    diesel_generation_power(j,i) = PDmin; %garante o mínimo do gerador diesel 
+                    hydraulic_turbine_power(j,i)= (remaining_energy_needs)- diesel_generation_power(j,i) ; %turbina hidraulica complementa tudo
+                    current_reservoir_energy= current_reservoir_energy - hydraulic_turbine_power(j,i)/avg_hydraulic_turbine_efficiency; % nivel do reservatorio diminui!!!! 
 
-                elseif  (Pd(j,i)-Pwr(j,i)) > ( Ptmax + PDmin) % verifica se diesel e hidraulica podem funcionar juntos. O minimo que o diesel trabalha é 120 kW (30% de 400kW nominal do grupo)
-                    Pt(j,i)= Ptmax; % potencia da turbina no máximo 
-                    Pge(j,i)= Pd(j,i)-Pwr(j,i) - Pt(j,i); % o gerador diesel complementa o resto
-                    Erj = Erj  - Ptmax/nt; % nivel do reservatorio diminui  
+                elseif  (remaining_energy_needs) > ( max_hydraulic_turbine_power + PDmin) % verifica se diesel e hidraulica podem funcionar juntos. O minimo que o diesel trabalha é 120 kW (30% de 400kW nominal do grupo)
+                    hydraulic_turbine_power(j,i)= max_hydraulic_turbine_power; % potencia da turbina no máximo 
+                    diesel_generation_power(j,i)= remaining_energy_needs - hydraulic_turbine_power(j,i); % o gerador diesel complementa o resto
+                    current_reservoir_energy = current_reservoir_energy  - max_hydraulic_turbine_power/avg_hydraulic_turbine_efficiency; % nivel do reservatorio diminui  
                 end
                 
             
-            elseif (Pd(j,i)-Pwr(j,i)) > Erj*nt %%%%%verifica se reservatorio tem energia hidrica suficiente para complementar a energia eolica. A turbina tb nao pode atender tudo
+            elseif (remaining_energy_needs) > current_reservoir_energy*avg_hydraulic_turbine_efficiency %%%%%verifica se reservatorio tem energia hidrica suficiente para complementar a energia eolica. A turbina tb nao pode atender tudo
                     
-                if Erj*nt > Ptmax  && Erj*nt < ( Ptmax + PDmin) 
-                    if Ptmax >= PDmin && (Pd(j,i)-Pwr(j,i))<= Ptmax % garante que Turbina fica abaixo da sua potencia
-                        Pge(j,i) = PDmin; %garante o mínimo do gerador diesel 
-                        Pt(j,i)= (Pd(j,i)-Pwr(j,i))- PDmin; %turbina hidraulica complementa tudo
-                        Erj= Erj - Pt(j,i)/nt; % nivel do reservatorio diminui!!!! 
+                if current_reservoir_energy*avg_hydraulic_turbine_efficiency > max_hydraulic_turbine_power  &&
+                    current_reservoir_energy*avg_hydraulic_turbine_efficiency < ( max_hydraulic_turbine_power + PDmin) 
+                    if max_hydraulic_turbine_power >= PDmin && (remaining_energy_needs)<= max_hydraulic_turbine_power % garante que Turbina fica abaixo da sua potencia
+                        diesel_generation_power(j,i) = PDmin; %garante o mínimo do gerador diesel 
+                        hydraulic_turbine_power(j,i)= (remaining_energy_needs)- PDmin; %turbina hidraulica complementa tudo
+                        current_reservoir_energy= current_reservoir_energy - hydraulic_turbine_power(j,i)/avg_hydraulic_turbine_efficiency; % nivel do reservatorio diminui!!!! 
                     else
-                        Pge(j,i) = Pd(j,i)-Pwr(j,i); % gerador diesel produz tudo pq nao pode produzir abaixo de 120
+                        diesel_generation_power(j,i) = remaining_energy_needs; % gerador diesel produz tudo pq nao pode produzir abaixo de 120
                     end
         
-                elseif  Erj*nt > ( Ptmax + PDmin) % verifica se diesel e hidraulica podem funcionar juntos. O minimo que o diesel trabalha é 120 kW (30% de 400kW nominal do grupo)
-                    Pt(j,i)= Ptmax; % potencia da turbina no máximo 
-                    Pge(j,i)= Pd(j,i)-Pwr(j,i) - Pt(j,i); % o gerador diesel complementa o resto
-                    Erj= Erj - Ptmax/nt; % nivel do reservatorio diminui  
+                elseif  current_reservoir_energy*avg_hydraulic_turbine_efficiency > ( max_hydraulic_turbine_power + PDmin) % verifica se diesel e hidraulica podem funcionar juntos. O minimo que o diesel trabalha é 120 kW (30% de 400kW nominal do grupo)
+                    hydraulic_turbine_power(j,i)= max_hydraulic_turbine_power; % potencia da turbina no máximo 
+                    diesel_generation_power(j,i)= remaining_energy_needs - hydraulic_turbine_power(j,i); % o gerador diesel complementa o resto
+                    current_reservoir_energy= current_reservoir_energy - max_hydraulic_turbine_power/avg_hydraulic_turbine_efficiency; % nivel do reservatorio diminui  
                 else
-                    Pge(j,i)= Pd(j,i)-Pwr(j,i); % só diesel garante o consumo menor que 120 kW
+                    diesel_generation_power(j,i)= remaining_energy_needs; % só diesel garante o consumo menor que 120 kW
                 end
                         
                 
             end
             
             
-            Er(j,i)=Erj;%armazena o valor actual da energia do reservatorio temporariamente na variavel Erj
+            reservoir_energy(j,i)=current_reservoir_energy;%armazena o valor actual da energia do reservatorio temporariamente na variavel current_reservoir_energy
 
         end %for(j)- horas
 
@@ -166,28 +190,28 @@ for k=1:size(Cen,1)
             
         % --------------------------    Resultados    --------------------------------
 
-            plot(Er,'c');% faz o grafico dos niveis do reservatorio
+            plot(reservoir_energy,'c');% faz o grafico dos niveis do reservatorio
             %print('-f1', '-r600', '-djpeg', 'Reservatorio')% exporta o grafico para um ficheiro Resevatorio em formato JPEG
-            plot(Pge,'ro');hold on
-            plot(Pt,'b');hold on
-            pW = sum(Pwr)/sum(Pd)*100; % pervcentual de eólica na rede
+            plot(diesel_generation_power,'ro');hold on
+            plot(hydraulic_turbine_power,'b');hold on
+            pW = sum(wind_injected_energy)/sum(consumption)*100; % pervcentual de eólica na rede
             fprintf('Percentual de Energia eolica na rede = %3.2f \n',pW)
-            pH = sum(Pt)/sum(Pd)*100; % percentual de energia hídrica na rede elétrica 
+            pH = sum(hydraulic_turbine_power)/sum(consumption)*100; % percentual de energia hídrica na rede elétrica 
             fprintf('Percentual de Energia hidrica na rede = %3.2f \n',pH)
-            pER =(sum(Pwr(:)+Pt(:)) ) /sum(Pd(:))*100; % percentual de penetracao total de Renováveis (eólica+hidro)
+            pER =(sum(wind_injected_energy(:)+hydraulic_turbine_power(:)) ) /sum(consumption(:))*100; % percentual de penetracao total de Renováveis (eólica+hidro)
             fprintf('Total de RE = %3.2f \n', pER)
-            ERt = sum(Pwr+Pt);  % energia renovável aproveitada (eolica injetada diretamente e hidraulica), kWh
+            ERt = sum(wind_injected_energy+hydraulic_turbine_power);  % energia renovável aproveitada (eolica injetada diretamente e hidraulica), kWh
             
-            pDG = sum(Pge)/sum(Pd)*100;
+            pDG = sum(diesel_generation_power)/sum(consumption)*100;
             fprintf('Percentual de Energia fossil na rede = %3.2f \n', pDG)
-        %       sum(Pwr)/sum(Pd)*100+sum(Pt)/sum(Pd)*100+sum(Pge)/sum(Pd)*100
+        %       sum(wind_injected_energy)/sum(consumption)*100+sum(hydraulic_turbine_power)/sum(consumption)*100+sum(diesel_generation_power)/sum(consumption)*100
             % poupanca de combustivel em metric tonnes
-        %       fprintf('Toneladas metricas de gasoleo poupados: %5.2f \n',(sum(Pwr(:))+ sum(Pt(:)))*.212/0.84/1000 )
-        %       fprintf('mESC poupados em gasoleo: %10.2f \n',(sum(Pwr(:))+ sum(Pt(:)))*.212/0.84*0.1122 )% poupanca de combustivel em 1000 Escudos
+        %       fprintf('Toneladas metricas de gasoleo poupados: %5.2f \n',(sum(wind_injected_energy(:))+ sum(hydraulic_turbine_power(:)))*.212/0.84/1000 )
+        %       fprintf('mESC poupados em gasoleo: %10.2f \n',(sum(wind_injected_energy(:))+ sum(hydraulic_turbine_power(:)))*.212/0.84*0.1122 )% poupanca de combustivel em 1000 Escudos
 
-            fprintf('Energia eolica aproveitada : %10.2f \n',(sum(Pwr(:))+ sum(Pt(:)))/(sum(Pwt)*ano)*100)
+            fprintf('Energia eolica aproveitada : %10.2f \n',(sum(wind_injected_energy(:))+ sum(hydraulic_turbine_power(:)))/(sum(combined_wind_turbine_power)*ano)*100)
             
-            pdiss= sum(Erej(:))/(sum(Pwt(:))*ano)*100;
+            pdiss= sum(rejected_energy(:))/(sum(combined_wind_turbine_power(:))*ano)*100;
             fprintf('Percentual de  Energia dissipada devido a reservatorio cheio: %3.2f \n', pdiss)
             
             
@@ -198,8 +222,8 @@ for k=1:size(Cen,1)
             %Custos: 
             EeC = 56554.48; % estudos e concursos 
             CTe = 2114.14*Te*ne; % custo dos aerogeradores de 1798.5 euros/kW instalado
-            CTh = 1469.38*max(Pt(:)); % custo das turbinas hidraulicas de 1250 euros/kW instalado
-            CBb = 1057.95*max(Pb(:)); % custo das bombas de 900 euros/kW instalado ->mm kW instalado dos aerogeradores
+            CTh = 1469.38*max(hydraulic_turbine_power(:)); % custo das turbinas hidraulicas de 1250 euros/kW instalado
+            CBb = 1057.95*max(pump_power(:)); % custo das bombas de 900 euros/kW instalado ->mm kW instalado dos aerogeradores
             CRes = 57.4*RS; % custo de reservatorio de 50 euros/m3 de volume
             CTub = 88.25*1.3*2*250; % custo de condutas de 50 euros/m. Sao duas condutas
             Ctot= (EeC+CTe+CTh+CBb+CRes+CTub)*1.15  % 15% para custos diversos 
@@ -227,8 +251,8 @@ for k=1:size(Cen,1)
             AF=zeros(9,ano); % matriz de avaliacao financeira inicializada
             
             for i=1:ano 
-                    AF(1,i) = (sum(Pwr(:,i))+ sum(Pt(:,i)))*.212/.84 *Pdiesel; % poupanca de gasoleo em escudos, pela producao da eolica e hidrica e considerando que cada kWh gasta 250 gramas de gasoleo e a densidadedo gasoleo � 0.84 litros/kg
-                    AF(2,i) = sum(Pwt)*0.024 + sum(Pb(:,1))*0.082; % custo de manutencao e operacao de 0.024 $/kwh eolico e $0.084/kwh de bomba
+                    AF(1,i) = (sum(wind_injected_energy(:,i))+ sum(hydraulic_turbine_power(:,i)))*.212/.84 *Pdiesel; % poupanca de gasoleo em escudos, pela producao da eolica e hidrica e considerando que cada kWh gasta 250 gramas de gasoleo e a densidadedo gasoleo � 0.84 litros/kg
+                    AF(2,i) = sum(combined_wind_turbine_power)*0.024 + sum(pump_power(:,1))*0.082; % custo de manutencao e operacao de 0.024 $/kwh eolico e $0.084/kwh de bomba
                                                 % o custo por kWh/ano (referencia ano 1) da bomba abrange todos os custos do sistema hidrico
                     
                     % amortizacao do capital investido em 15 anos                         
@@ -292,10 +316,10 @@ for k=1:size(Cen,1)
             
             
             %print("reducao nos custos de producao de eletricidade ") 
-            %tariff_red = 1 - (sum(Pge(:))*Ckwh_d+ sum(Pwr(:)+Pt(:))*LCOE)/sum(Pd(:))/(Ckwh_d)
+            %tariff_red = 1 - (sum(diesel_generation_power(:))*Ckwh_d+ sum(wind_injected_energy(:)+hydraulic_turbine_power(:))*LCOE)/sum(consumption(:))/(Ckwh_d)
             
             %# Tabelas de resultados 
-            Res(k,:) = [Te*ne, max(Pb(:)), max(Pt(:)), RS, pDG, pH, pW, pER, pdiss, Ctot, NPV, pback, TIR, LCOE];
+            Res(k,:) = [Te*ne, max(pump_power(:)), max(hydraulic_turbine_power(:)), RS, pDG, pH, pW, pER, pdiss, Ctot, NPV, pback, TIR, LCOE];
             dataset({Res 'Wind', 'Pump', 'Hydro', 'm3', 'pDG', 'pHydro', 'pWind',  'pER',  'pdiss', 'Ctot', 'NPV', 'pback', 'IRR', 'LCOE'})
 
             

@@ -17,6 +17,14 @@ O arquivo original a ser traduzido para python é o `brava_simul_cenarios.m`.
 
 ## Dias
 
+### 21-01-2025
+
+Com alguns condicionais rearranjados e o conceito na cabeça, melhoramos
+a estrutura de pastas e os nomes de algumas variáveis.
+
+Falta continuar com os condicionais do fluxograma de quando ativar a bomba, gerador a
+diesel, etc
+
 ### 20-01-2025
 
 Estamos voltando ao projeto. Vamos seguir com a melhoria dos códigos.
